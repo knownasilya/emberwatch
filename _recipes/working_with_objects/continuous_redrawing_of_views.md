@@ -16,11 +16,11 @@ You'd like to redraw your views every few seconds/minutes e.g. to update
 relative timestamps (like on twitter.com).
 
 ### Solution
-Have a clock object with a `pulse` attribute in your application which
-increments using a timed interval. You want to let view(s) bind values to be
-refreshed when the `pulse` attribute increments.
+Have a `clock` service with a `pulse` attribute in your application which
+increments using a timed interval. You want to let UI bound to the `pulse`
+attribute update every time the value increments.
 
-The clock object can be used to create new instances for binding to new views
+The `clock` service can be used to create new instances for binding to new views
 generated within the application, like a list of comments.
 
 ### Discussion
@@ -29,10 +29,10 @@ generated within the application, like a list of comments.
 Cookbook: Continuous Redrawing of Views
 </a><script src="http://static.jsbin.com/js/embed.js"></script>
 
-#### ClockService object
+#### Clock Service
 
-This `ClockService` is an example of an object that may come from a library.
-And, is injected into the application via an initializer.
+This `ClockService` is an `Ember.Service` which is a singleton and can be
+used throughout your application.
 
 During initialization the `tick` method is called which uses `Ember.run.later`
 with a time of 250 milliseconds as the interval. A property is set at the end
@@ -42,44 +42,36 @@ another interval is triggered each time the property increases.
 `app/services/clock.js`
 
 ```javascript
-export default Ember.Object.extend({
-    pulse: Ember.computed.oneWay('_seconds').readOnly(),
-    tick: function () {
-      var clock = this;
-      Ember.run.later(function () {
-        var seconds = clock.get('_seconds');
-        if (typeof seconds === 'number') {
-          clock.set('_seconds', seconds + (1/4));
-        }
-      }, 250);
-    }.observes('_seconds').on('init'),
-    _seconds: 0
-  });
+import Ember from 'ember';
+
+const { on, run, computed, observer } = Ember;
+
+export default Ember.Service.extend({
+  pulse: computed.oneWay('_seconds').readOnly(),
+  _seconds: 0
+  
+  tick: on('init', observer('_seconds', function () {
+    run.later(() => {
+      var seconds = this.get('_seconds');
+      
+      if (typeof seconds === 'number') {
+        this.set('_seconds', seconds + (1/4));
+      }
+    }, 250);
+  }))
+});
 ```
 
-#### Binding to the `pulse` attribute
+#### Accessing the `clock` service
 
-In this recipe, an application initializer is used to inject an instance of the
-`ClockService` object, setting a controller's `clock` property to this instance.
-
-`app/initializers/services.js`
-
-```javascript
-export default {
-  name: 'services',
-  initialize: function(container, app) {
-    // inject into a specific route
-    app.inject('controller:interval', 'clock', 'service:clock');
-  }
-};
-```
+Since this is a service, we can use `Ember.inject.service` to access the `clock`
+service from our controller.
 
 The controller can set any computed properties based on the `pulse` property of
-the injected `clock` instance.
+the injected `clock` service.
 
 In this case the `seconds` property is bound to the `pulse` property of the
-controller's `clock`. The property `clock.pulse` was injected during
-initialization.
+controller's `clock`.
 
 The controller has (session) data to display `seconds` to visitors, as well as
 a handful of properties used as conditions in the Handlebars template.
@@ -87,21 +79,30 @@ a handful of properties used as conditions in the Handlebars template.
 `app/controllers/interval.js`
 
 ```javascript
-export default Ember.ObjectController.extend({
-    secondsBinding: 'clock.pulse',
-    fullSecond: function () {
-      return (this.get('seconds') % 1 === 0);
-    }.property('seconds'),
-    quarterSecond: function () {
-      return (this.get('seconds') % 1 === 1/4);
-    }.property('seconds'),
-    halfSecond: function () {
-      return (this.get('seconds') % 1 === 1/2);
-    }.property('seconds'),
-    threeQuarterSecond: function () {
-      return (this.get('seconds') % 1 === 3/4);
-    }.property('seconds')
-  });
+import Ember from 'ember';
+
+const { inject, computed } = Ember;
+
+export default Ember.Controller.extend({
+  clockService: inject.service('clock'),
+  seconds: computed.alias('clockService.seconds'),
+  
+  fullSecond: computed('seconds', function () {
+    return (this.get('seconds') % 1 === 0);
+  }),
+  
+  quarterSecond: computed('seconds', function () {
+    return (this.get('seconds') % 1 === 1/4);
+  }),
+  
+  halfSecond: computed('seconds', function () {
+    return (this.get('seconds') % 1 === 1/2);
+  }),
+  
+  threeQuarterSecond: computed('seconds', function () {
+    return (this.get('seconds') % 1 === 3/4);
+  })
+});
 ```
 
 A controller for a list of comments, each comment will have a new clock
@@ -113,7 +114,7 @@ comment was created.
 
 ```javascript
 export default Ember.ObjectController.extend({
-    seconds: Ember.computed.oneWay('clock.pulse').readOnly()
+  seconds: Ember.computed.oneWay('clock.pulse').readOnly()
 });
 ```
 
